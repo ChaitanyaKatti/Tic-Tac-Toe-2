@@ -7,6 +7,8 @@
             --accent-hover-color: #5d9948;
             --bg-color: rgba(48, 46, 43, 1.0);
             --text-color: #ffffffbb;
+            --cell-dark: #aec993;
+            --cell-light: #ebecd0;
         }
 
         body {
@@ -239,7 +241,7 @@
         .cell {
             width: 150px;
             height: 150px;
-            background: white;
+            background: var(--cell-light);
             display: flex;
             align-items: center;
             justify-content: center;
@@ -254,8 +256,8 @@
         }
 
         .cell img {
-            width: 60%;
-            height: auto;
+            width: auto;
+            height: 90%;
             user-select: none;
             -webkit-user-drag: none;
         }
@@ -318,7 +320,46 @@
             justify-content: space-between;
             margin-bottom: 5px;
         }
+
+        /* Player Strips in Main Content */
+        .player-strip {
+            display: flex;
+            align-items: left;
+            justify-content: left;
+            gap: 15px;
+            padding: 10px 20px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+            margin: 10px 0;
+            width: fit-content;
+            min-width: 400px;
+            backdrop-filter: blur(5px);
+        }
+
+        .player-strip i {
+            font-size: 2rem;
+            color: var(--text-color);
+        }
+
+        .player-strip .info-text {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+        }
+
+        .player-strip .name {
+            font-size: 1.2rem;
+            font-weight: bold;
+            color: var(--primary-color);
+        }
+
+        .player-strip .id {
+            font-size: 0.9rem;
+            color: var(--text-color);
+            font-family: monospace;
+        }
     </style>
+    <link rel="icon" type="image/x-icon" href="./assets/favicon.ico">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/7.0.1/css/all.min.css">
 </head>
 
@@ -361,17 +402,34 @@
         </div>
 
         <div class="main-content">
+            <div id="opponent-info-strip" class="player-strip" style="visibility: hidden;">
+                <i class="fa-solid fa-bullseye"></i>
+                <div class="info-text">
+                    <span class="name" id="op-strip-name">Opponent</span>
+                    <span class="id" id="op-strip-id">Waiting...</span>
+                </div>
+            </div>
+
             <div id="status-area">
                 <div id="game-message">Waiting for connection</div>
                 <div id="sub-message"></div>
             </div>
 
             <div id="board"></div>
+
+            <div id="my-info-strip" class="player-strip" style="visibility: hidden;">
+                <i class="fa-solid fa-circle-user"></i>
+                <div class="info-text">
+                    <span class="name" id="my-strip-name"></span>
+                    <span class="id" id="my-strip-id"></span>
+                </div>
+            </div>
+
             <button id="restart-btn" onclick="requestRestart()">Play Again</button>
         </div>
     </div>
 
-    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    <script src="https://unpkg.com/peerjs@1.5.5/dist/peerjs.min.js"></script>
     <script src="game.js"></script>
 
 </body>

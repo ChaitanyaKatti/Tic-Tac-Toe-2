@@ -3,12 +3,12 @@ let peer = null;
 let conn = null;
 let myId = "";
 let myName = "";
-let myColor = ""; // 'blue' or 'green'
+let myColor = ""; // 'white' or 'black'
 let opponentId = "";
 let opponentName = "";
 
-// We'll track whose turn it is by color. 'blue' always moves first.
-let turnColor = "blue";
+// We'll track whose turn it is by color. 'white' always moves first.
+let turnColor = "white";
 let board = ["", "", "", "", "", "", "", "", ""];
 let gameActive = false;
 let myRestartReady = false;
@@ -27,6 +27,18 @@ const subMessage = document.getElementById("sub-message");
 const boardDiv = document.getElementById("board");
 const restartBtn = document.getElementById("restart-btn");
 const scoreList = document.getElementById("score-list");
+const myInfoStrip = document.getElementById("my-info-strip");
+const opponentInfoStrip = document.getElementById("opponent-info-strip");
+const myStripName = document.getElementById("my-strip-name");
+const myStripId = document.getElementById("my-strip-id");
+const opStripName = document.getElementById("op-strip-name");
+const opStripId = document.getElementById("op-strip-id");
+
+// Early load images
+const whiteImg = new Image();
+whiteImg.src = "./assets/white.png";
+const blackImg = new Image();
+blackImg.src = "./assets/black.png";
 
 // Sounds
 const clickSound = new Audio("./assets/click.ogg");
@@ -93,6 +105,11 @@ function startGameSession() {
     myNameDisplay.innerText = myName;
     myIdDisplay.innerText = myId;
 
+    // Update Strip
+    myInfoStrip.style.visibility = "visible";
+    myStripName.innerText = myName;
+    myStripId.innerText = '#' + myId;
+
     initPeer();
     renderBoard();
     updateScoreBoard();
@@ -138,19 +155,32 @@ function setupConnection(isInitiator = false) {
         peerIdHint.style.color = "#81b64c";
         opponentId = conn.peer;
 
+        // Update Opponent Strip
+        opponentInfoStrip.style.visibility = "visible";
+        opStripId.innerText = '#' + opponentId;
+        // Ideally we would exchange names, but for now we just show ID or "Opponent"
+        // If we wanted to exchange names, we'd need to send a hello packet or similar.
+        // For now, let's just use the ID as the name or "Player"
+        opStripName.innerText = "Opponent"; // Placeholder until we exchange names
+
         if (isInitiator) {
-            // Initiator decides roles. Randomly assign who is blue (first).
-            const iAmBlue = Math.random() < 0.5;
-            const myAssignedColor = iAmBlue ? 'blue' : 'green';
-            const opponentAssignedColor = iAmBlue ? 'green' : 'blue';
+            // Initiator decides roles. Randomly assign who is white (first).
+            const iAmWhite = Math.random() < 0.5;
+            const myAssignedColor = iAmWhite ? 'white' : 'black';
+            const opponentAssignedColor = iAmWhite ? 'black' : 'white';
 
             // Send setup payload
             conn.send({
                 type: 'start_game',
                 yourColor: opponentAssignedColor, // They get the other color
-                turn: 'blue' // Blue always starts
+                yourName: myName,
+                turn: 'white' // White always starts
             });
-
+            // Send name
+            conn.send({
+                type: 'name',
+                yourName: myName,
+            });
             startGame(myAssignedColor);
         }
     });
@@ -163,6 +193,7 @@ function setupConnection(isInitiator = false) {
         gameMessage.innerText = "Opponent disconnected";
         gameActive = false;
         conn = null;
+        opponentInfoStrip.style.visibility = "hidden";
     });
 }
 
@@ -171,6 +202,14 @@ function handleData(data) {
     switch (data.type) {
         case 'start_game':
             startGame(data.yourColor);
+            conn.send({
+                type: 'name',
+                yourName: myName,
+            });
+            break;
+        case 'name':
+            opponentName = data.yourName;
+            opStripName.innerText = opponentName;
             break;
         case 'move':
             handleOpponentMove(data.index);
@@ -185,7 +224,7 @@ function handleData(data) {
 function startGame(assignedColor) {
     gameStartSound.play();
     myColor = assignedColor;
-    turnColor = 'blue'; // Always resets to blue
+    turnColor = 'white'; // Always resets to white
     board = ["", "", "", "", "", "", "", "", ""];
     gameActive = true;
 
@@ -226,7 +265,7 @@ function makeMove(index, color) {
     } else {
         // Toggle turn
         moveSound.play();
-        turnColor = turnColor === 'blue' ? 'green' : 'blue';
+        turnColor = turnColor === 'white' ? 'black' : 'white';
         updateStatus();
     }
 }
@@ -296,7 +335,7 @@ function handleRestartRequest() {
 
 function checkRestartStart() {
     if (myRestartReady && opRestartReady) {
-        const nextColor = (myColor === 'blue') ? 'green' : 'blue';
+        const nextColor = (myColor === 'white') ? 'black' : 'white';
         resetRestartState();
         startGame(nextColor);
     }
@@ -311,18 +350,18 @@ function resetRestartState() {
 
 
 // --- Visuals & DOM ---
-
 function renderBoard() {
     boardDiv.innerHTML = "";
     board.forEach((cell, index) => {
         const div = document.createElement("div");
         div.className = "cell";
+        div.style.backgroundColor = index % 2 === 0 ? 'var(--cell-dark)' : 'var(--cell-light)';
 
         const img = document.createElement('img');
-        if (cell === 'blue') {
-            img.src = 'assets/blue.png';
-        } else if (cell === 'green') {
-            img.src = 'assets/green.png';
+        if (cell === 'white') {
+            img.src = 'assets/white.png';
+        } else if (cell === 'black') {
+            img.src = 'assets/black.png';
         }
         div.appendChild(img);
 
@@ -339,7 +378,7 @@ function updateStatus() {
         subMessage.innerText = `You are ${myColor}`;
     } else {
         gameMessage.innerText = "Opponent's Turn";
-        subMessage.innerText = `Opponent is ${turnColor === 'blue' ? 'blue' : 'green'}`;
+        subMessage.innerText = `Opponent is ${turnColor === 'white' ? 'white' : 'black'}`;
     }
 }
 
