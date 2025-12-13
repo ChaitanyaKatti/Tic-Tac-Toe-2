@@ -1,4 +1,3 @@
-
 // State
 let peer = null;
 let conn = null;
@@ -6,6 +5,8 @@ let myId = "";
 let myName = "";
 let myColor = ""; // 'blue' or 'green'
 let opponentId = "";
+let opponentName = "";
+
 // We'll track whose turn it is by color. 'blue' always moves first.
 let turnColor = "blue";
 let board = ["", "", "", "", "", "", "", "", ""];
@@ -15,6 +16,9 @@ let opRestartReady = false;
 
 // DOM Elements
 const loginScreen = document.getElementById("login-screen");
+const usernameInput = document.getElementById("username-input");
+const peerIdInput = document.getElementById("peer-id-input");
+const peerIdHint = document.getElementById("peer-id-hint");
 const gameContainer = document.getElementById("game-container");
 const myNameDisplay = document.getElementById("my-name");
 const myIdDisplay = document.getElementById("my-id");
@@ -24,20 +28,68 @@ const boardDiv = document.getElementById("board");
 const restartBtn = document.getElementById("restart-btn");
 const scoreList = document.getElementById("score-list");
 
+// Sounds
+const clickSound = new Audio("./assets/click.ogg");
+const moveSound = new Audio("./assets/move.webm");
+const captureSound = new Audio("./assets/capture.webm");
+const gameStartSound = new Audio("./assets/game-start.webm");
+const gameEndSound = new Audio("./assets/game-end.webm");
+const illegalSound = new Audio("./assets/illegal.webm");
+
+// Get name from localstorage and set it to the input
+usernameInput.value = localStorage.getItem("myName");
+// Add enter key support to connect button
+usernameInput.addEventListener("keydown", function (event) {
+    if (event.key === "Enter") {
+        startGameSession();
+    }
+});
+peerIdInput.addEventListener("keydown", function (event) {
+    if (event.key === "Enter") {
+        connectToPeer();
+    }
+});
+
+function sanitizeName1(name) {
+    // Remove special characters, keep space, and limit to 10 characters
+    return name.replace(/[^a-zA-Z0-9 ]/g, '').slice(0, 10);
+}
+
+function sanitizeName2(name) {
+    // Remove special characters, numbers, remove spaces, make all small letters, and limit to 3 characters
+    return name.replace(/[^a-zA-Z]/g, '').toLowerCase().slice(0, 3);
+}
+
 // --- Initialization ---
 function startGameSession() {
-    const nameInput = document.getElementById("username-input");
-    const name = nameInput.value.trim();
+    clickSound.play();
+    const name = sanitizeName1(usernameInput.value.trim());
     if (!name) return alert("Please enter your name!");
-
     myName = name;
-    // Generate ID: Name + 3 random digits
-    const randomDigits = Math.floor(100 + Math.random() * 900);
-    myId = `${name}${randomDigits}`;
+
+    // Store name locally
+    if (myName !== localStorage.getItem("myName")) { // Name has changed
+        localStorage.setItem("myName", myName);
+        // Generate new ID also
+        const randomDigits = Math.floor(100 + Math.random() * 900);
+        myId = `${sanitizeName2(name)}${randomDigits}`;
+        // Store myId locally
+        localStorage.setItem("myId", myId);
+    }
+    else { // Same name, same ID
+        myId = localStorage.getItem("myId");
+        if (!myId) { // Incase ID doesn't exist
+            // Generate new ID also
+            const randomDigits = Math.floor(100 + Math.random() * 900);
+            myId = `${sanitizeName2(name)}${randomDigits}`;
+            // Store myId locally
+            localStorage.setItem("myId", myId);
+        }
+    }
 
     // Initialize UI
     loginScreen.style.display = "none";
-    gameContainer.style.display = "flex";
+    gameContainer.classList.remove("blurred-bg");
     myNameDisplay.innerText = myName;
     myIdDisplay.innerText = myId;
 
@@ -69,7 +121,10 @@ function initPeer() {
 }
 
 function connectToPeer() {
-    const remoteId = document.getElementById("peerIdInput").value.trim();
+    clickSound.play();
+    peerIdHint.innerText = "Connecting...";
+    peerIdHint.style.color = "#eaff00ff";
+    const remoteId = peerIdInput.value.trim();
     if (!remoteId) return alert("Enter an opponent ID");
     if (remoteId === myId) return alert("Cannot play against yourself");
 
@@ -79,7 +134,8 @@ function connectToPeer() {
 
 function setupConnection(isInitiator = false) {
     conn.on('open', () => {
-        console.log("Connected to: " + conn.peer);
+        peerIdHint.innerText = "Connected";
+        peerIdHint.style.color = "#81b64c";
         opponentId = conn.peer;
 
         if (isInitiator) {
@@ -127,6 +183,7 @@ function handleData(data) {
 
 // --- Game Logic ---
 function startGame(assignedColor) {
+    gameStartSound.play();
     myColor = assignedColor;
     turnColor = 'blue'; // Always resets to blue
     board = ["", "", "", "", "", "", "", "", ""];
@@ -143,7 +200,10 @@ function startGame(assignedColor) {
 function handleLocalMove(index) {
     if (!gameActive) return;
     if (turnColor !== myColor) return; // Not my turn
-    if (board[index] !== "") return; // Occupied
+    if (board[index] !== "") {
+        illegalSound.play();
+        return; // Occupied
+    }
 
     makeMove(index, myColor);
     conn.send({ type: 'move', index: index });
@@ -165,12 +225,14 @@ function makeMove(index, color) {
         endGame('draw');
     } else {
         // Toggle turn
+        moveSound.play();
         turnColor = turnColor === 'blue' ? 'green' : 'blue';
         updateStatus();
     }
 }
 
 function endGame(result, winningCombo = null) {
+    gameEndSound.play();
     gameActive = false;
     restartBtn.style.display = 'inline-block';
     restartBtn.innerText = "Play Again";
@@ -212,6 +274,7 @@ function endGame(result, winningCombo = null) {
 
 function requestRestart() {
     if (myRestartReady) return; // Already clicked
+    clickSound.play();
     myRestartReady = true;
     restartBtn.innerText = "Waiting for Opponent...";
     restartBtn.disabled = true;
@@ -227,14 +290,12 @@ function handleRestartRequest() {
         checkRestartStart();
     } else {
         gameMessage.innerText = "Opponent wants to play again!";
-        subMessage.innerText = "Press Play Again to start.";
+        subMessage.innerText = "Press Play Again to restart.";
     }
 }
 
 function checkRestartStart() {
     if (myRestartReady && opRestartReady) {
-        // Both ready. Determine colors based on PREVIOUS value.
-        // We must rely on `myColor` being the value from the JUST FINISHED game.
         const nextColor = (myColor === 'blue') ? 'green' : 'blue';
         resetRestartState();
         startGame(nextColor);
@@ -339,3 +400,6 @@ function updateScoreBoard() {
         </div>
     `;
 }
+
+// Initial render to show something in the background
+renderBoard();
