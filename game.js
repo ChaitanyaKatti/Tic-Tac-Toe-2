@@ -8,11 +8,21 @@ let opponentId = "";
 let opponentName = "";
 
 // We'll track whose turn it is by color. 'white' always moves first.
+// We'll track whose turn it is by color. 'white' always moves first.
 let turnColor = "white";
-let board = ["", "", "", "", "", "", "", "", ""];
+// Board now stores null or { color, size }
+// Initialize with nulls
+let board = Array(9).fill(null);
 let gameActive = false;
 let myRestartReady = false;
 let opRestartReady = false;
+
+// Russian Doll Variables
+const NUM_DOLLS = 7;
+// Inventories: Array of booleans, true = available, false = used. Index 0 is size 1.
+let myDolls = Array(NUM_DOLLS).fill(true);
+let opDolls = Array(NUM_DOLLS).fill(true);
+let selectedDollSize = null; // 1 to 7
 
 // DOM Elements
 const loginScreen = document.getElementById("login-screen");
@@ -33,6 +43,8 @@ const myStripName = document.getElementById("my-strip-name");
 const myStripId = document.getElementById("my-strip-id");
 const opStripName = document.getElementById("op-strip-name");
 const opStripId = document.getElementById("op-strip-id");
+const myDollDeck = document.getElementById("my-doll-deck");
+const opDollDeck = document.getElementById("op-doll-deck");
 
 // Early load images
 const whiteImg = new Image();
@@ -111,7 +123,9 @@ function startGameSession() {
     myStripId.innerText = '#' + myId;
 
     initPeer();
+    resetGameLocalState(); // Init inventories
     renderBoard();
+    renderDollDecks();
     updateScoreBoard();
 }
 
@@ -212,7 +226,7 @@ function handleData(data) {
             opStripName.innerText = opponentName;
             break;
         case 'move':
-            handleOpponentMove(data.index);
+            handleOpponentMove(data.index, data.size);
             break;
         case 'restart_request':
             handleRestartRequest();
@@ -225,48 +239,201 @@ function startGame(assignedColor) {
     gameStartSound.play();
     myColor = assignedColor;
     turnColor = 'white'; // Always resets to white
-    board = ["", "", "", "", "", "", "", "", ""];
+
+    resetGameLocalState();
     gameActive = true;
 
 
     updateStatus();
     renderBoard();
+    renderDollDecks();
     restartBtn.style.display = 'none'; // Hide restart until game ends
 
     updateScoreBoard(); // Ensure scores are up to date
 }
 
+function resetGameLocalState() {
+    board = Array(9).fill(null);
+    myDolls = Array(NUM_DOLLS).fill(true);
+    opDolls = Array(NUM_DOLLS).fill(true);
+    selectedDollSize = null;
+}
+
 function handleLocalMove(index) {
     if (!gameActive) return;
-    if (turnColor !== myColor) return; // Not my turn
-    if (board[index] !== "") {
-        illegalSound.play();
-        return; // Occupied
+    if (turnColor !== myColor) return;
+
+    // Must handle doll selection
+    if (!selectedDollSize) {
+        // Maybe alert or sound?
+        return;
     }
 
-    makeMove(index, myColor);
-    conn.send({ type: 'move', index: index });
+    // Validation
+    const targetCell = board[index];
+    if (targetCell) {
+        // Gobble logic: Must be larger
+        if (selectedDollSize <= targetCell.size) {
+            illegalSound.play();
+            return;
+        }
+    }
+    // If empty or valid gobble:
+
+    // Execute move
+    makeMove(index, myColor, selectedDollSize);
+
+    // Update inventory (local)
+    // Note: makeMove updates the board, but inventory management needs to be tied to WHO moved.
+    // We'll handle inventory update inside makeMove or separately?
+    // It's cleaner to handle it here for local, but makeMove is shared.
+    // Let's pass the 'isMe' flag or handle before calling makeMove?
+    // Let's do it in `makeMove` by checking color?
+    // Better: let's update inventory locally immediately.
+
+    // Actually, makeMove is called by opponent too.
+
+    conn.send({ type: 'move', index: index, size: selectedDollSize });
+
+    // Deselect
+    selectedDollSize = null;
+    renderDollDecks();
 }
 
-function handleOpponentMove(index) {
+function handleOpponentMove(index, size) {
     if (!gameActive) return;
-    makeMove(index, turnColor); // Opponent's move is current turnColor
+    makeMove(index, turnColor, size);
 }
 
-function makeMove(index, color) {
-    board[index] = color;
+function makeMove(index, color, size) {
+    board[index] = { color: color, size: size };
+    moveSound.play();
+
+    // Update Inventories
+    if (color === myColor) {
+        myDolls[size - 1] = false;
+    } else {
+        opDolls[size - 1] = false;
+    }
+
     renderBoard();
+    renderDollDecks();
 
     const winnerInfo = checkWinner(color);
     if (winnerInfo) {
         endGame(color, winnerInfo);
-    } else if (board.every(cell => cell !== "")) {
+        return;
+    }
+
+    // Russian Doll Tie Condition: Both players stuck.
+    // Or board full is NOT a tie here, handled by turn skipping.
+
+    // Toggle turn
+    turnColor = turnColor === 'white' ? 'black' : 'white';
+
+    // Check if next player can move
+    checkTurnSkip();
+
+    updateStatus();
+}
+
+function checkTurnSkip() {
+    // Check if current turnColor has ANY valid moves
+    const currentInventory = (turnColor === myColor) ? myDolls : opDolls;
+    const availableSizes = [];
+    currentInventory.forEach((avail, idx) => {
+        if (avail) availableSizes.push(idx + 1);
+    });
+
+    if (availableSizes.length === 0) {
+        // No dolls left. Skip turn? 
+        // "A Player's turn is skipped if don't have any dolls left."
+        // Check if OTHER player also has no moves -> Tie.
+        handleSkip(availableSizes);
+        return;
+    }
+
+    // Check if any available size can be placed on ANY cell
+    let canMove = false;
+    for (let i = 0; i < 9; i++) {
+        const cell = board[i];
+        if (!cell) {
+            canMove = true;
+            break;
+        }
+        // If cell occupied, can we gobble?
+        // We need just ONE doll that is larger than cell.size
+        // Since availableSizes is sorted (1..7), checking largest is enough?
+        // Actually we just need to find if there is ANY s in availableSizes > cell.size
+        const largestAvailable = availableSizes[availableSizes.length - 1];
+        if (largestAvailable > cell.size) {
+            canMove = true;
+            break;
+        }
+    }
+
+    if (!canMove) {
+        handleSkip(availableSizes);
+    }
+}
+
+function handleSkip(availableSizes) {
+    // Skip turn
+    // Check if BOTH are skipped -> Tie
+    // We need a state to track consecutive skips?
+    // Or just check if the NEXT player (who just played) can move?
+    // If I just played, and now it's opponent's turn. If they can't move, we skip back to ME.
+    // If I ALSO can't move, then TIE.
+
+    console.log(`Skipping turn for ${turnColor}`);
+
+    // Use a temporary flag or just check immediately for the next player?
+    // Let's toggle turn and check again. Recursion risk if not careful.
+
+    // Let's invoke a special status message
+    // And toggle turn back.
+
+    const skippedColor = turnColor;
+    turnColor = turnColor === 'white' ? 'black' : 'white';
+
+    // Check if the OTHER player (who just got the turn back) can move?
+    const nextInventory = (turnColor === myColor) ? myDolls : opDolls;
+    const nextAvailSizes = []; // ... duplicate logic, should extract
+    nextInventory.forEach((avail, idx) => { if (avail) nextAvailSizes.push(idx + 1); });
+
+    let nextCanMove = false;
+    if (nextAvailSizes.length > 0) {
+        for (let i = 0; i < 9; i++) {
+            const cell = board[i];
+            if (!cell) { nextCanMove = true; break; }
+            if (nextAvailSizes[nextAvailSizes.length - 1] > cell.size) { nextCanMove = true; break; }
+        }
+    }
+
+    if (!nextCanMove) {
+        // Both stuck
         endGame('draw');
     } else {
-        // Toggle turn
-        moveSound.play();
-        turnColor = turnColor === 'white' ? 'black' : 'white';
-        updateStatus();
+        // Only one skipped.
+        // We need to inform user.
+        // Alert might be annoying, let's put it in submessage
+        // But updateStatus overwrites.
+        // NOTE: If we toggle turn here, updateStatus will be called after this function returns (in makeMove)
+        // Wait, makeMove calls checkTurnSkip.
+        // If checkTurnSkip changes turnColor, then makeMove's subsequent updateStatus might show the NEW turn.
+        // We want to show "Opponent skipped!" or "You skipped!"
+
+        // Let's handle this in updateStatus or add a notification.
+        // We can leverage subMessage in updateStatus.
+        // Adding a global 'lastActionWasSkip' flag?
+
+        // Simple approach:
+        // Just toggle and let the game continue. The status message will say "Your Turn" again immediately.
+        // Maybe add a flash message?
+
+        setTimeout(() => {
+            alert(`${skippedColor} has no moves and skips turn!`);
+        }, 100);
     }
 }
 
@@ -355,19 +522,106 @@ function renderBoard() {
     board.forEach((cell, index) => {
         const div = document.createElement("div");
         div.className = "cell";
+
+        // Background color logic could be enhanced but sticking to basic
         div.style.backgroundColor = index % 2 === 0 ? 'var(--cell-dark)' : 'var(--cell-light)';
 
-        const img = document.createElement('img');
-        if (cell === 'white') {
-            img.src = 'assets/white.png';
-        } else if (cell === 'black') {
-            img.src = 'assets/black.png';
+        if (cell) {
+            const img = document.createElement('img');
+            img.dataset.size = cell.size; // For CSS scaling
+            if (cell.color === 'white') {
+                img.src = 'assets/white.png';
+            } else if (cell.color === 'black') {
+                img.src = 'assets/black.png';
+            }
+            div.appendChild(img);
+
+            const num = document.createElement('span');
+            num.className = 'cell-num';
+            num.innerText = cell.size;
+            div.appendChild(num);
         }
-        div.appendChild(img);
 
         div.addEventListener("click", () => handleLocalMove(index));
         boardDiv.appendChild(div);
     });
+}
+
+function renderDollDecks() {
+    renderDeck(myDollDeck, myColor, myDolls, true);
+    // Opponent deck: we don't know their color until game starts, handling fallback
+    const opColor = (myColor === 'white') ? 'black' : 'white';
+    renderDeck(opDollDeck, opColor, opDolls, false);
+}
+
+function renderDeck(container, color, inventory, isMe) {
+    container.innerHTML = "";
+    // Render 1 to 7
+    for (let i = 0; i < NUM_DOLLS; i++) {
+        const size = i + 1;
+        const available = inventory[i];
+
+        const div = document.createElement("div");
+        div.className = "doll-item";
+        div.dataset.size = size;
+
+        if (!available) {
+            div.classList.add("used");
+        }
+
+        // Highlight selection for me
+        if (isMe && available && selectedDollSize === size) {
+            div.classList.add("selected");
+        }
+
+        const img = document.createElement('img');
+        // If color isn't set yet (pre-game), defaults might be needed, but usually myColor is empty string initially?
+        // Let's handle empty color gracefully or just show nothing? 
+        // Actually, startGame sets colors. Before that, maybe just show placeholders or nothing.
+        // But for "deck", we need images.
+
+        let imgSrc = "";
+        if (color === 'white') imgSrc = "assets/white.png";
+        else if (color === 'black') imgSrc = "assets/black.png";
+        else {
+            // Default or hidden if no color assigned yet
+            // Maybe show gray? Or just white/black based on some default?
+            // Let's play safe: if no color, don't render img? Or assume White for P1 if not started?
+            // Actually, updateStatus logic implies colors are known.
+            // If game not active, maybe empty?
+            if (isMe && myColor) imgSrc = `assets/${myColor}.png`;
+        }
+
+        if (imgSrc) {
+            img.src = imgSrc;
+            div.appendChild(img);
+        }
+
+        const numSpan = document.createElement('span');
+        numSpan.className = 'doll-num';
+        numSpan.innerText = size;
+        div.appendChild(numSpan);
+
+        if (isMe && available) {
+            div.addEventListener("click", () => {
+                if (!gameActive) return;
+                if (turnColor !== myColor) return;
+                selectDoll(size);
+            });
+        }
+
+        container.appendChild(div);
+    }
+}
+
+function selectDoll(size) {
+    clickSound.play();
+    if (selectedDollSize === size) {
+        selectedDollSize = null; // Deselect
+    } else {
+        selectedDollSize = size;
+    }
+    renderDollDecks(); // Re-render to show selection
 }
 
 function updateStatus() {
@@ -391,7 +645,8 @@ function checkWinner(color) {
     ];
     // Return the winning combo array, or null
     for (let combo of wins) {
-        if (combo.every(idx => board[idx] === color)) {
+        // Must check if cell is not null AND color matches
+        if (combo.every(idx => board[idx] && board[idx].color === color)) {
             return combo;
         }
     }

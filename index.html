@@ -249,6 +249,21 @@
             box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
             cursor: pointer;
             transition: transform 0.1s;
+            position: relative;
+        }
+
+        .cell-num {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 2.5rem;
+            font-weight: bold;
+            color: #ffffff;
+            text-shadow: 0 0 4px #000000, 0 0 2px #000000;
+            pointer-events: none;
+            z-index: 5;
+            opacity: 0.9;
         }
 
         .cell:hover {
@@ -324,16 +339,25 @@
         /* Player Strips in Main Content */
         .player-strip {
             display: flex;
-            align-items: left;
-            justify-content: left;
-            gap: 15px;
+            flex-direction: column;
+            /* Changed to column to stack info and deck */
+            align-items: center;
+            /* Center items */
+            justify-content: center;
+            gap: 10px;
             padding: 10px 20px;
             background: rgba(255, 255, 255, 0.1);
             border-radius: 10px;
             margin: 10px 0;
             width: fit-content;
-            min-width: 400px;
-            backdrop-filter: blur(5px);
+        }
+
+        .strip-header {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            width: 100%;
+            justify-content: flex-start;
         }
 
         .player-strip i {
@@ -357,6 +381,127 @@
             font-size: 0.9rem;
             color: var(--text-color);
             font-family: monospace;
+        }
+
+        /* Doll Deck */
+        .doll-deck {
+            display: flex;
+            gap: 10px;
+            padding: 10px;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 8px;
+            min-height: 60px;
+            align-items: flex-end;
+            /* Align bottom so size difference is visible upwards */
+            justify-content: center;
+        }
+
+        .doll-item {
+            width: auto;
+            height: 4em;
+            /* Base height, will be scaled */
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: transform 0.2s, filter 0.2s;
+            position: relative;
+        }
+
+        .doll-item img {
+            width: auto;
+            max-height: 100%;
+            display: block;
+            filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.3));
+        }
+
+        /* Size scaling for dolls 1-7 (applied to the img inside usually, or the container) */
+        /* We'll scale the .doll-item or its content */
+        /* Let's use data attributes or specific classes for sizes */
+
+        .doll-item[data-size="1"] img {
+            height: 30%;
+        }
+
+        .doll-item[data-size="2"] img {
+            height: 40%;
+        }
+
+        .doll-item[data-size="3"] img {
+            height: 50%;
+        }
+
+        .doll-item[data-size="4"] img {
+            height: 60%;
+        }
+
+        .doll-item[data-size="5"] img {
+            height: 70%;
+        }
+
+        .doll-item[data-size="6"] img {
+            height: 85%;
+        }
+
+        .doll-item[data-size="7"] img {
+            height: 100%;
+        }
+
+        .doll-num {
+            position: relative;
+            text-align: center;
+            font-size: 1rem;
+            color: #ccc;
+            font-family: monospace;
+            pointer-events: none;
+        }
+
+        .doll-item.selected {
+            transform: translateY(-10px) scale(1.1);
+            filter: brightness(1.2);
+        }
+
+        .doll-item.used {
+            opacity: 0.3;
+            pointer-events: none;
+            filter: grayscale(1);
+        }
+
+        /* Adjust cell images too */
+        .cell img {
+            /* Existing styles */
+            width: auto;
+            max-height: 90%;
+        }
+
+        /* Dynamic sizing in cells */
+        .cell img[data-size="1"] {
+            height: 30%;
+        }
+
+        .cell img[data-size="2"] {
+            height: 40%;
+        }
+
+        .cell img[data-size="3"] {
+            height: 50%;
+        }
+
+        .cell img[data-size="4"] {
+            height: 60%;
+        }
+
+        .cell img[data-size="5"] {
+            height: 70%;
+        }
+
+        .cell img[data-size="6"] {
+            height: 85%;
+        }
+
+        .cell img[data-size="7"] {
+            height: 95%;
         }
     </style>
     <link rel="icon" type="image/x-icon" href="./assets/favicon.ico">
@@ -403,11 +548,14 @@
 
         <div class="main-content">
             <div id="opponent-info-strip" class="player-strip" style="visibility: hidden;">
-                <i class="fa-solid fa-bullseye"></i>
-                <div class="info-text">
-                    <span class="name" id="op-strip-name">Opponent</span>
-                    <span class="id" id="op-strip-id">Waiting...</span>
+                <div class="strip-header">
+                    <i class="fa-solid fa-bullseye"></i>
+                    <div class="info-text">
+                        <span class="name" id="op-strip-name">Opponent</span>
+                        <span class="id" id="op-strip-id">Waiting...</span>
+                    </div>
                 </div>
+                <div id="op-doll-deck" class="doll-deck"></div>
             </div>
 
             <div id="status-area">
@@ -418,11 +566,14 @@
             <div id="board"></div>
 
             <div id="my-info-strip" class="player-strip" style="visibility: hidden;">
-                <i class="fa-solid fa-circle-user"></i>
-                <div class="info-text">
-                    <span class="name" id="my-strip-name"></span>
-                    <span class="id" id="my-strip-id"></span>
+                <div class="strip-header">
+                    <i class="fa-solid fa-circle-user"></i>
+                    <div class="info-text">
+                        <span class="name" id="my-strip-name"></span>
+                        <span class="id" id="my-strip-id"></span>
+                    </div>
                 </div>
+                <div id="my-doll-deck" class="doll-deck"></div>
             </div>
 
             <button id="restart-btn" onclick="requestRestart()">Play Again</button>
